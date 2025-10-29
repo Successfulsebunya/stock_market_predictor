@@ -1,149 +1,188 @@
-# Import libraries we need
+"""
+---------------------------------------------------------
+ STOCK MARKET TREND ESTIMATION USING FINITE DIFFERENCE METHODS
+---------------------------------------------------------
+
+This project uses numerical methods (Forward, Backward, and Central
+Finite Differences) to estimate and predict the next day's stock
+price based on a week's daily recorded stock prices.
+
+The code demonstrates:
+  ✅ Use of finite difference approximations
+  ✅ Slope (trend) analysis and prediction
+  ✅ Confidence estimation based on data variance
+  ✅ Visualization using matplotlib (auto-saved PNGs)
+  ✅ Clean and descriptive output formatting
+
+Author: Moses Cursor
+---------------------------------------------------------
+"""
+
+# =========================
+# IMPORT REQUIRED LIBRARIES
+# =========================
 import numpy as np
 import matplotlib.pyplot as plt
-from typing import List, Tuple
+import os
 
-class StockMarketPredictor:
+
+# ======================================================
+# FUNCTION: predict_next_price(prices)
+# ======================================================
+def predict_next_price(prices):
     """
-    A simple stock market predictor using numerical difference methods.
+    Predicts the next stock price using:
+      - Forward Finite Differences
+      - Backward Finite Differences
+      - Central Finite Differences
+
+    Combines results using a weighted average to improve reliability.
+    Also computes a confidence score based on variance in daily changes.
+
+    Parameters:
+        prices (list or np.array): List of 7 daily stock prices
+
+    Returns:
+        tuple:
+          - predicted_next_price (float)
+          - confidence_percent (float)
+          - forward_slope (float)
+          - backward_slope (float)
+          - central_slope (float)
     """
 
-    def __init__(self, prices: List[float]):
-        self.prices = np.array(prices)
-        self.days = len(prices)
+    # Convert to numpy array for easier calculations
+    prices = np.array(prices, dtype=float)
+    n = len(prices)
 
-    def forward_difference(self, i: int) -> float:
-        if i >= self.days - 1:
-            return 0
-        return self.prices[i + 1] - self.prices[i]
+    # ------------------------------------------------------
+    # STEP 1: FORWARD DIFFERENCE
+    # ------------------------------------------------------
+    # Calculates the rate of change using future points
+    forward_diff = np.diff(prices)
+    forward_slope = np.mean(forward_diff)
 
-    def backward_difference(self, i: int) -> float:
-        if i <= 0:
-            return 0
-        return self.prices[i] - self.prices[i - 1]
+    # ------------------------------------------------------
+    # STEP 2: BACKWARD DIFFERENCE
+    # ------------------------------------------------------
+    # Calculates rate of change using previous points
+    backward_diff = np.diff(prices[::-1])
+    backward_slope = -np.mean(backward_diff)
 
-    def central_difference(self, i: int) -> float:
-        if i <= 0 or i >= self.days - 1:
-            return 0
-        return (self.prices[i + 1] - self.prices[i - 1]) / 2
+    # ------------------------------------------------------
+    # STEP 3: CENTRAL DIFFERENCE
+    # ------------------------------------------------------
+    # Averages forward and backward for balanced trend
+    central_slope = (forward_slope + backward_slope) / 2
 
-    def calculate_trend_metrics(self) -> dict:
-        forward_diffs = [self.forward_difference(i) for i in range(self.days)]
-        backward_diffs = [self.backward_difference(i) for i in range(self.days)]
-        central_diffs = [self.central_difference(i) for i in range(self.days)]
+    # ------------------------------------------------------
+    # STEP 4: WEIGHTED COMBINATION
+    # ------------------------------------------------------
+    # Forward is more recent → higher weight
+    combined_slope = 0.6 * forward_slope + 0.3 * backward_slope + 0.1 * central_slope
 
-        return {
-            'forward_differences': forward_diffs,
-            'backward_differences': backward_diffs,
-            'central_differences': central_diffs,
-            'avg_forward_trend': np.mean([d for d in forward_diffs if d != 0]),
-            'avg_backward_trend': np.mean([d for d in backward_diffs if d != 0]),
-            'avg_central_trend': np.mean([d for d in central_diffs if d != 0])
-        }
+    # Predict next price
+    predicted_next_price = prices[-1] + combined_slope
 
-    def predict_next_price(self) -> Tuple[float, dict]:
-        last_price = self.prices[-1]
-        last_backward_diff = self.backward_difference(self.days - 1)
-        prediction_1 = last_price + last_backward_diff
+    # ------------------------------------------------------
+    # STEP 5: CONFIDENCE SCORE
+    # ------------------------------------------------------
+    # Low variance in daily change = stable trend = high confidence
+    variance = np.var(forward_diff)
+    confidence = max(0, 1 - variance / 10)
+    confidence_percent = confidence * 100
 
-        recent_backward_diffs = [
-            self.backward_difference(i) for i in range(max(0, self.days - 3), self.days)
-        ]
-        avg_recent_trend = np.mean([d for d in recent_backward_diffs if d != 0])
-        prediction_2 = last_price + avg_recent_trend
-
-        if self.days >= 3:
-            central_diff = self.central_difference(self.days - 2)
-            prediction_3 = last_price + central_diff
-        else:
-            prediction_3 = prediction_2
-
-        weights = [0.3, 0.4, 0.3]
-        final_prediction = (weights[0] * prediction_1 +
-                            weights[1] * prediction_2 +
-                            weights[2] * prediction_3)
-
-        details = {
-            'last_price': last_price,
-            'last_backward_diff': last_backward_diff,
-            'avg_recent_trend': avg_recent_trend,
-            'prediction_method_1': prediction_1,
-            'prediction_method_2': prediction_2,
-            'prediction_method_3': prediction_3,
-            'final_prediction': final_prediction,
-            'confidence_score': self._calculate_confidence()
-        }
-
-        return final_prediction, details
-
-    def _calculate_confidence(self) -> float:
-        if self.days < 3:
-            return 0.5
-
-        recent_diffs = [self.backward_difference(i)
-                        for i in range(max(0, self.days - 4), self.days)]
-        recent_diffs = [d for d in recent_diffs if d != 0]
-
-        if len(recent_diffs) < 2:
-            return 0.5
-
-        variance = np.var(recent_diffs)
-        confidence = max(0.1, min(0.9, 1 / (1 + variance)))
-        return confidence
+    return predicted_next_price, confidence_percent, forward_slope, backward_slope, central_slope
 
 
-def plot_prediction(prices, predicted_price, title="Stock Price Trend Prediction"):
-    """Auto-plot the stock prices and predicted next value."""
+# ======================================================
+# FUNCTION: plot_and_save(prices, predicted_price, example_name)
+# ======================================================
+def plot_and_save(prices, predicted_price, example_name):
+    """
+    Plots the given stock prices and predicted next price.
+
+    Saves the figure automatically to the user's Downloads folder.
+
+    Parameters:
+        prices (list): Weekly stock prices
+        predicted_price (float): Next day predicted price
+        example_name (str): Label for graph title and saved file name
+    """
+
+    # Get the user's Downloads path
+    downloads_dir = os.path.join(os.path.expanduser("~"), "Downloads")
+    os.makedirs(downloads_dir, exist_ok=True)
+
+    # Plot setup
     plt.figure(figsize=(8, 4))
     days = list(range(1, len(prices) + 1))
-    plt.plot(days, prices, marker='o', label='Actual Prices', linewidth=2)
-    plt.plot(len(prices) + 1, predicted_price, 'ro', label='Predicted Price')
-    plt.title(title)
+
+    # Plot weekly trend
+    plt.plot(days, prices, marker='o', color='green', linewidth=2, label='Actual Prices')
+
+    # Add the predicted point
+    plt.plot(len(prices) + 1, predicted_price, 'ro', markersize=8, label='Predicted Price')
+
+    # Customize graph
+    plt.title(f"Stock Market Prediction - {example_name}")
     plt.xlabel("Day")
-    plt.ylabel("Price ($)")
+    plt.ylabel("Stock Price ($)")
+    plt.grid(True, linestyle='--', alpha=0.6)
     plt.legend()
-    plt.grid(True, linestyle='--', alpha=0.7)
-    plt.tight_layout()
+
+    # Save figure as PNG
+    filename = os.path.join(downloads_dir, f"{example_name.replace(' ', '_')}_prediction.png")
+    plt.savefig(filename, bbox_inches='tight', dpi=150)
+    print(f"📸 Graph saved successfully to: {filename}")
+
+    # Display on screen
     plt.show()
 
 
+# ======================================================
+# MAIN FUNCTION
+# ======================================================
 def main():
-    print("🚀 Welcome to the Stock Market Predictor! 🚀")
-    print("=" * 50)
+    """
+    Demonstrates the finite difference prediction method on
+    multiple stock examples. Displays computed values and plots.
+    """
 
-    # Example 1: Rising Stock
-    print("\n📈 Example 1: Steadily Rising Stock")
-    rising_prices = [100, 102, 104, 106, 108, 110, 112]
-    predictor1 = StockMarketPredictor(rising_prices)
-    predicted_price, details = predictor1.predict_next_price()
-    print(f"📊 Last known price: ${details['last_price']:.2f}")
-    print(f"🔮 Predicted next price: ${predicted_price:.2f}")
-    print(f"🎯 Confidence level: {details['confidence_score']:.1%}")
-    plot_prediction(rising_prices, predicted_price, "Rising Stock Trend")
+    print("\n🚀 Welcome to the Stock Market Predictor! 🚀")
+    print("==================================================")
 
-    # Example 2: Volatile Stock
-    print("\n📉📈 Example 2: Volatile Stock")
-    volatile_prices = [100, 95, 105, 98, 107, 102, 109]
-    predictor2 = StockMarketPredictor(volatile_prices)
-    predicted_price2, details2 = predictor2.predict_next_price()
-    print(f"📊 Last known price: ${details2['last_price']:.2f}")
-    print(f"🔮 Predicted next price: ${predicted_price2:.2f}")
-    print(f"🎯 Confidence level: {details2['confidence_score']:.1%}")
-    plot_prediction(volatile_prices, predicted_price2, "Volatile Stock Trend")
+    # Define multiple datasets (weekly stock price samples)
+    examples = {
+        "Rising Stock": [100, 102, 104, 106, 108, 110, 112],
+        "Volatile Stock": [100, 95, 105, 98, 107, 102, 109],
+        "Falling Stock": [120, 118, 115, 113, 110, 108, 105],
+    }
 
-    # Summary Analysis for first example
-    print("\n🔍 Detailed Analysis for Rising Stock:")
-    print("-" * 40)
-    trends = predictor1.calculate_trend_metrics()
-    print(f"Average daily change (forward): ${trends['avg_forward_trend']:.2f}")
-    print(f"Average daily change (backward): ${trends['avg_backward_trend']:.2f}")
-    print(f"Average daily change (central): ${trends['avg_central_trend']:.2f}")
-    print(f"\nPrediction Method 1 (simple trend): ${details['prediction_method_1']:.2f}")
-    print(f"Prediction Method 2 (average trend): ${details['prediction_method_2']:.2f}")
-    print(f"Prediction Method 3 (balanced): ${details['prediction_method_3']:.2f}")
-    print(f"Final Combined Prediction: ${details['final_prediction']:.2f}")
-    print("\n✨ That's how we predict stock prices using math! ✨")
+    # Loop through all test cases
+    for name, prices in examples.items():
+        print(f"\n📊 Example: {name}")
+        print("--------------------------------------------------")
+        print(f"📅 Stock prices for the week: {', '.join(map(str, prices))}")
+
+        # Perform prediction
+        predicted_price, confidence, fwd, bwd, ctr = predict_next_price(prices)
+
+        # Display results
+        print(f"🔮 Predicted Next Price: ${predicted_price:.2f}")
+        print(f"🎯 Confidence Level: {confidence:.1f}%")
+        print(f"➡ Forward Slope: {fwd:.2f}")
+        print(f"⬅ Backward Slope: {bwd:.2f}")
+        print(f"⚖ Central Slope: {ctr:.2f}")
+
+        # Generate and save graph automatically
+        plot_and_save(prices, predicted_price, name)
+
+    print("\n✅ All predictions completed successfully!")
 
 
+# ======================================================
+# ENTRY POINT
+# ======================================================
 if __name__ == "__main__":
     main()
